@@ -10,7 +10,6 @@ on:
   workflow_dispatch:
 
 jobs:
-
   test:
     name: Unit Test
     runs-on: ubuntu-latest
@@ -22,7 +21,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run unit tests
-        # Thêm biến môi trường cho MLflow giống như lúc nãy làm ở local
         env:
           MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
           MLFLOW_ARTIFACT_ROOT: "./mlartifacts"
@@ -34,7 +32,6 @@ jobs:
     name: Train
     needs: test
     runs-on: ubuntu-latest
-    # THÊM ĐOẠN NÀY: Giúp robot biết chỗ lưu dữ liệu huấn luyện
     env:
       MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
       MLFLOW_ARTIFACT_ROOT: "./mlartifacts"
@@ -57,12 +54,26 @@ jobs:
       - name: Pull data with DVC
         run: dvc pull data/train_phase1.csv data/eval.csv
       - name: Train model
-        # THÊM LỆNH MKDIR: Tạo sẵn thư mục để tránh lỗi không tìm thấy chỗ lưu
         run: |
           mkdir -p outputs models
           python src/train.py
       - name: Read metrics
-# ... các phần sau (read_metrics, upload model...) giữ nguyên như cũ ...
+        id: read_metrics
+        run: |
+          ACC=$(python3 -c "import json; d=json.load(open('outputs/metrics.json')); print(d['accuracy'])")
+          echo "accuracy=$ACC" >> $GITHUB_OUTPUT
+      - name: Upload model to S3
+        run: |
+          python3 - <<'EOF'
+          import boto3, os
+          s3 = boto3.client('s3')
+          s3.upload_file('models/model.pkl', '${{ secrets.CLOUD_BUCKET }}', 'models/latest/model.pkl')
+          EOF
+      - name: Save metrics as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics
+          path: outputs/metrics.json
 
   eval:
     name: Eval
@@ -70,7 +81,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check eval gate
-        # TODO 6: Kiểm tra ngưỡng chất lượng 0.70
         run: |
           python3 - <<'EOF'
           acc = float("${{ needs.train.outputs.accuracy }}")
@@ -92,7 +102,6 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            # TODO 7 & 8: Restart server và kiểm tra sức khỏe
             sudo systemctl restart mlops-serve
             sleep 5
             curl -sf http://localhost:8000/health && echo "Health check passed." || exit 1
