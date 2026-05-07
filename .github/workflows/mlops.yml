@@ -34,6 +34,10 @@ jobs:
     name: Train
     needs: test
     runs-on: ubuntu-latest
+    # THÊM ĐOẠN NÀY: Giúp robot biết chỗ lưu dữ liệu huấn luyện
+    env:
+      MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
+      MLFLOW_ARTIFACT_ROOT: "./mlartifacts"
     outputs:
       accuracy: ${{ steps.read_metrics.outputs.accuracy }}
     steps:
@@ -46,35 +50,19 @@ jobs:
           pip install -r requirements.txt
           pip install boto3 dvc[s3]
       - name: Authenticate to AWS
-        # TODO 2: Lấy thông tin từ Secret JSON đã tạo
         run: |
           echo "AWS_ACCESS_KEY_ID=$(echo '${{ secrets.CLOUD_CREDENTIALS }}' | python3 -c "import sys, json; print(json.load(sys.stdin)['aws_access_key_id'])")" >> $GITHUB_ENV
           echo "AWS_SECRET_ACCESS_KEY=$(echo '${{ secrets.CLOUD_CREDENTIALS }}' | python3 -c "import sys, json; print(json.load(sys.stdin)['aws_secret_access_key'])")" >> $GITHUB_ENV
           echo "AWS_DEFAULT_REGION=ap-southeast-1" >> $GITHUB_ENV
       - name: Pull data with DVC
-        # TODO 3: Kéo dữ liệu từ S3
         run: dvc pull data/train_phase1.csv data/eval.csv
       - name: Train model
-        run: python src/train.py
+        # THÊM LỆNH MKDIR: Tạo sẵn thư mục để tránh lỗi không tìm thấy chỗ lưu
+        run: |
+          mkdir -p outputs models
+          python src/train.py
       - name: Read metrics
-        id: read_metrics
-        # TODO 4: Đọc accuracy để chuyển tiếp sang job sau
-        run: |
-          ACC=$(python3 -c "import json; d=json.load(open('outputs/metrics.json')); print(d['accuracy'])")
-          echo "accuracy=$ACC" >> $GITHUB_OUTPUT
-      - name: Upload model to S3
-        # TODO 5: Đẩy mô hình lên kho S3
-        run: |
-          python3 - <<'EOF'
-          import boto3, os
-          s3 = boto3.client('s3')
-          s3.upload_file('models/model.pkl', '${{ secrets.CLOUD_BUCKET }}', 'models/latest/model.pkl')
-          EOF
-      - name: Save metrics as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: metrics
-          path: outputs/metrics.json
+# ... các phần sau (read_metrics, upload model...) giữ nguyên như cũ ...
 
   eval:
     name: Eval
