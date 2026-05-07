@@ -46,22 +46,39 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install boto3 dvc[s3]
-      - name: Authenticate to AWS
+      
+      - name: Authenticate to AWS and Pull data
+        env:
+          CRED_JSON: ${{ secrets.CLOUD_CREDENTIALS }}
         run: |
-          echo "AWS_ACCESS_KEY_ID=$(echo '${{ secrets.CLOUD_CREDENTIALS }}' | python3 -c "import sys, json; print(json.load(sys.stdin)['aws_access_key_id'])")" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=$(echo '${{ secrets.CLOUD_CREDENTIALS }}' | python3 -c "import sys, json; print(json.load(sys.stdin)['aws_secret_access_key'])")" >> $GITHUB_ENV
+          # 1. Trích xuất key bằng python và đặt vào môi trường shell
+          export AWS_ACCESS_KEY_ID=$(echo '$CRED_JSON' | python3 -c "import sys, json; print(json.load(sys.stdin)['aws_access_key_id'])")
+          export AWS_SECRET_ACCESS_KEY=$(echo '$CRED_JSON' | python3 -c "import sys, json; print(json.load(sys.stdin)['aws_secret_access_key'])")
+          export AWS_DEFAULT_REGION=ap-southeast-1
+          
+          # 2. Cấu hình trực tiếp cho DVC (Nuclear option để sửa lỗi credentials)
+          dvc remote modify myremote --local access_key_id "$AWS_ACCESS_KEY_ID"
+          dvc remote modify myremote --local secret_access_key "$AWS_SECRET_ACCESS_KEY"
+          
+          # 3. Kéo dữ liệu
+          dvc pull data/train_phase1.csv data/eval.csv
+          
+          # 4. Lưu lại các biến này cho các bước sau của Job
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> $GITHUB_ENV
           echo "AWS_DEFAULT_REGION=ap-southeast-1" >> $GITHUB_ENV
-      - name: Pull data with DVC
-        run: dvc pull data/train_phase1.csv data/eval.csv
+
       - name: Train model
         run: |
           mkdir -p outputs models
           python src/train.py
+
       - name: Read metrics
         id: read_metrics
         run: |
           ACC=$(python3 -c "import json; d=json.load(open('outputs/metrics.json')); print(d['accuracy'])")
           echo "accuracy=$ACC" >> $GITHUB_OUTPUT
+
       - name: Upload model to S3
         run: |
           python3 - <<'EOF'
@@ -69,6 +86,7 @@ jobs:
           s3 = boto3.client('s3')
           s3.upload_file('models/model.pkl', '${{ secrets.CLOUD_BUCKET }}', 'models/latest/model.pkl')
           EOF
+
       - name: Save metrics as artifact
         uses: actions/upload-artifact@v4
         with:
