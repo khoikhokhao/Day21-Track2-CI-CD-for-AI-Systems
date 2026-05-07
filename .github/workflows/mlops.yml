@@ -35,6 +35,10 @@ jobs:
     env:
       MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
       MLFLOW_ARTIFACT_ROOT: "./mlartifacts"
+      # Trích xuất trực tiếp từ Secret JSON cho toàn bộ Job
+      AWS_ACCESS_KEY_ID: ${{ fromJson(secrets.CLOUD_CREDENTIALS).aws_access_key_id }}
+      AWS_SECRET_ACCESS_KEY: ${{ fromJson(secrets.CLOUD_CREDENTIALS).aws_secret_access_key }}
+      AWS_DEFAULT_REGION:  ap-southeast-2 # QUAN TRỌNG: Hãy đảm bảo Bucket của bạn ở Singapore
     outputs:
       accuracy: ${{ steps.read_metrics.outputs.accuracy }}
     steps:
@@ -47,27 +51,13 @@ jobs:
           pip install -r requirements.txt
           pip install boto3 dvc[s3]
       
-      - name: Authenticate to AWS and Pull data
-        env:
-          CRED_JSON: ${{ secrets.CLOUD_CREDENTIALS }}
+      - name: Pull data with DVC
         run: |
-          # 1. Trích xuất key bằng python và đặt vào môi trường shell
-          export AWS_ACCESS_KEY_ID=$(echo '$CRED_JSON' | python3 -c "import sys, json; print(json.load(sys.stdin)['aws_access_key_id'])")
-          export AWS_SECRET_ACCESS_KEY=$(echo '$CRED_JSON' | python3 -c "import sys, json; print(json.load(sys.stdin)['aws_secret_access_key'])")
-          export AWS_DEFAULT_REGION=ap-southeast-1
-          
-          # 2. Cấu hình trực tiếp cho DVC (Nuclear option để sửa lỗi credentials)
-          dvc remote modify myremote --local access_key_id "$AWS_ACCESS_KEY_ID"
-          dvc remote modify myremote --local secret_access_key "$AWS_SECRET_ACCESS_KEY"
-          
-          # 3. Kéo dữ liệu
+          # Cấu hình DVC dùng khóa đã trích xuất ở trên
+          dvc remote modify myremote --local access_key_id "${{ env.AWS_ACCESS_KEY_ID }}"
+          dvc remote modify myremote --local secret_access_key "${{ env.AWS_SECRET_ACCESS_KEY }}"
           dvc pull data/train_phase1.csv data/eval.csv
           
-          # 4. Lưu lại các biến này cho các bước sau của Job
-          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> $GITHUB_ENV
-          echo "AWS_DEFAULT_REGION=ap-southeast-1" >> $GITHUB_ENV
-
       - name: Train model
         run: |
           mkdir -p outputs models
