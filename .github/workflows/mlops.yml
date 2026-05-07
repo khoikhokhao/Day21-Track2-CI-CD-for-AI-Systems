@@ -35,10 +35,9 @@ jobs:
     env:
       MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
       MLFLOW_ARTIFACT_ROOT: "./mlartifacts"
-      # Trích xuất trực tiếp từ Secret JSON cho toàn bộ Job
       AWS_ACCESS_KEY_ID: ${{ fromJson(secrets.CLOUD_CREDENTIALS).aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ fromJson(secrets.CLOUD_CREDENTIALS).aws_secret_access_key }}
-      AWS_DEFAULT_REGION:  ap-southeast-2 # QUAN TRỌNG: Hãy đảm bảo Bucket của bạn ở Singapore
+      AWS_DEFAULT_REGION: ap-southeast-2 # ĐÃ CẬP NHẬT: Asia Pacific (Sydney)
     outputs:
       accuracy: ${{ steps.read_metrics.outputs.accuracy }}
     steps:
@@ -53,7 +52,6 @@ jobs:
       
       - name: Pull data with DVC
         run: |
-          # Cấu hình DVC dùng khóa đã trích xuất ở trên
           dvc remote modify myremote --local access_key_id "${{ env.AWS_ACCESS_KEY_ID }}"
           dvc remote modify myremote --local secret_access_key "${{ env.AWS_SECRET_ACCESS_KEY }}"
           dvc pull data/train_phase1.csv data/eval.csv
